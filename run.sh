@@ -1,0 +1,1 @@
+PYTHONPATH=/home/zhoufan/code/inspir/drill-bp2 python3 run_inference.py
