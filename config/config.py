@@ -51,11 +51,11 @@ feature_templates_list = [
             "x": RangedFeature((MapInfo.X_MIN, MapInfo.X_MAX)),
             "y": RangedFeature((MapInfo.Y_MIN, MapInfo.Y_MAX)),
             "z": RangedFeature((MapInfo.Z_MIN, MapInfo.Z_MAX)),
-            # "a2a": RangedFeature((0, MapInfo.A2A_WEAPON_NUM_MAX)),
-            # "a2g": RangedFeature((0, MapInfo.A2G_WEAPON_NUM_MAX)),
+            "a2a": RangedFeature((0, MapInfo.A2A_WEAPON_NUM_MAX)),
+            "a2g": RangedFeature((0, MapInfo.A2G_WEAPON_NUM_MAX)),
             "course": RangedFeature((MapInfo.COURSE_MIN, MapInfo.COURSE_MAX)),
-            # "speed": RangedFeature((MapInfo.SPEED_MIN, MapInfo.SPEED_MAX)),
-            # "locked": CategoricalFeature(depth=2),
+            "speed": RangedFeature((MapInfo.SPEED_MIN, MapInfo.SPEED_MAX)),
+            "locked": CategoricalFeature(depth=2),
             "type": CategoricalFeature(depth=len(PlayerConfig.MY_UNIT_TYPES)),
         },
         encoder_config=default_entity_config    # 使用上述填写的特征抽取参数
@@ -286,7 +286,7 @@ gear_config = {
         'max_game_time': 8000,      # 每回合的最大时间限制
         'scen_name': '/home/Joint_Operation_scenario.ntedt',
         'prefix': PREFIX,
-        'image_name': 'sim_fast:v2.6',
+        'image_name': 'sim_fast:v2.8',
         # 'image_name': 'registry.inspir.ai:5000/combatmodserver:v1.4',
         'sim_speed': 20,            # 模拟速度
     },

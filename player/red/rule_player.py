@@ -211,7 +211,6 @@ class A2GTask(Task):
                             cmd.append(Command.target_hunt(unit['ID'], self.target_command['ID'], 90, direction))
 
                         # 此时表明该单位的导弹发出去一枚，继续对同一个目标进行打击
-                        
                         if unit['WP']['360'] == 1 and self.unit_task_state[unit['ID']] == 1:
                             self.unit_task_state[unit['ID']] = 0
                             direction = self.get_attack_direction(self.target_command, unit)
@@ -263,17 +262,16 @@ class RulePlayer(BaseRulePlayer):
     def _take_off(self, raw_obs):
         cmds = []
 
-        # fly_types = [UnitType.A2A, UnitType.A2G, UnitType.JAM]
-        
-        # for type_ in fly_types:
-        #     num = min(self._get_waiting_aircraft_num(raw_obs, type_), 4)
-        #     # if self._get_waiting_aircraft_num(raw_obs, type_):
-        #     if num:
-        #         cmds.append(Command.takeoff_areapatrol(RED_AIRPORT_ID, num, type_))
+        fly_types = [UnitType.A2A, UnitType.A2G, UnitType.JAM]
+        for type_ in fly_types:
+            num = min(self._get_waiting_aircraft_num(raw_obs, type_), 4)
+            # if self._get_waiting_aircraft_num(raw_obs, type_):
+            if num:
+                cmds.append(Command.takeoff_areapatrol(RED_AIRPORT_ID, num, type_))
 
-        if self.flag:
-            cmds.append(Command.takeoff_areapatrol(RED_AIRPORT_ID, 3, UnitType.A2G))
-            self.flag = False 
+        # if self.flag:
+        #     cmds.append(Command.takeoff_areapatrol(RED_AIRPORT_ID, 3, UnitType.A2G))
+        #     self.flag = False 
 
         return cmds
 
@@ -301,7 +299,7 @@ class RulePlayer(BaseRulePlayer):
         cmds.extend(self._take_off(raw_obs))
         
         cmds.extend(self._awacs_task(raw_obs))
-        cmds.extend(self.a2g_task.attack_ship(raw_obs['red']))
+        # cmds.extend(self.a2g_task.attack_ship(raw_obs['red']))
         # cmds.extend(self.a2g_task.attack_command(raw_obs['red']))
 
         a2g_map = self._get_units_map(raw_obs, UnitType.A2G)
@@ -319,7 +317,7 @@ class RulePlayer(BaseRulePlayer):
         # patrol_cmds = [cmd for cmd in cmds if 'patrol'in cmd['maintype']]
         # print('total, patrol, else', len(cmds), len(patrol_cmds), len(cmds)-len(patrol_cmds))
 
-        for cmd in cmds:
-            print(cmd)
+        # for cmd in cmds:
+        #     print(cmd)
 
         return cmds

@@ -116,22 +116,18 @@ class NJ01Player(AgentInterface):
         self.rule_player = RulePlayer(self.side)
         self.__agent_stat = NJ01Stat()
         
+
         # added by jts
         self.target_ship = None    # 发现了船就按照设定好的战法打，好像不需要了
         self.rockets = None        # 记录了导弹信息，方便采取反击动作
         self.rocket_target = set()    # 记录被导弹打击的单位编号，存储的为 unit['ID']
+        
         self.team_unit_map = {}    # 记录从 unit['TMID'] -> [unit1, unit2 ...] 所包含单位的映射
-        
-        # 记录处于打击任务的轰炸机编队信息，同时记录下其开展打击任务的仿真时间，如果超过一定时间，则会从中撤销；
-        # 同时还得记录打击目标的编号. 也就是 TMID -> (sim_time, target_id) 的映射
-        self.unit_attack_task = {}   # 确定好指令等级，打指挥所或者打船为 1，巡逻为 2 
-        self.target_command = []
-        
-        
-        # self.unit_task_state = {}   # 还需要记录每个单位是否在逃跑之中了，迪士尼在逃单位; 0-逃跑中，1-打击中，2-巡逻中
+        self.unit_attack_task = {}   # 记录了当前档位所接受指令的等级，打指挥所或者打船为 1，巡逻为 2 ，有先后关系
+        self.target_command = []    
         # 目前躲弹效果不好，暂不考虑
-        # self.target_command = None，好像也不需要指挥所信息
         
+
     def transform_action2command(self, action, raw_obs):
         """
         :param action:
@@ -140,6 +136,7 @@ class NJ01Player(AgentInterface):
         """
         cmds = []
         cmds.extend(self.rule_player.step(raw_obs))
+        self.update_info(raw_obs)
         command, valid_actions = self._make_commands(action, raw_obs)
         cmds.extend(command)
         # print('red cmd:', raw_obs['sim_time'])
@@ -152,7 +149,8 @@ class NJ01Player(AgentInterface):
             unit_team_map[unit['ID']] = unit['TMID']
         return unit_team_map
     
-    def unpdate_info(self, raw_obs):
+    def update_info(self, raw_obs):
+        # 敌方舰船和指挥所
         for unit in raw_obs[self.side]['qb']:
             if unit['LX'] == UnitType.SHIP:
                 self.is_ship_found = True 
@@ -161,20 +159,23 @@ class NJ01Player(AgentInterface):
         
         self.target_command = [unit for unit in raw_obs[self.side]['qb'] if unit['LX'] == UnitType.COMMAND]
 
+        # 编队ID 到 [unit_1, unit_2, ...., unit_n] 的映射
         self.team_unit_map = {}
         for unit in raw_obs[self.side]['units']:
-            if unit['LX'] == UnitType.A2G:
-                self.patrol_point = [unit['X'] - 10000, unit['Y'], unit['Z']]
-                if unit['TMID'] not in self.team_unit_map.keys():
-                    self.team_unit_map[unit['TMID']] = [unit]
-                else:
-                    self.team_unit_map[unit['TMID']].append(unit)
+            # if unit['LX'] == UnitType.A2G:
+            if unit['TMID'] not in self.team_unit_map.keys():
+                self.team_unit_map[unit['TMID']] = [unit]
+            else:
+                self.team_unit_map[unit['TMID']].append(unit)
 
         self.rockets = raw_obs[self.side]['rockets']
+        self.rocket_target = set()
+        for rocket in self.rockets:
+            self.rocket_target.add(rocket['N2'])
 
         self.ships = [unit for unit in raw_obs['red']['qb'] if unit['LX'] == UnitType.SHIP]
         
-
+        
     def collect_features(self, raw_obs, env_step_info):
         """
         user-defined interface to collect feature values (including historic features), which will be
@@ -371,6 +372,27 @@ class NJ01Player(AgentInterface):
                                 break
 
         return cmd 
+    
+    # 反击，对于被导弹锁定的单位，如果此时不处于打击任务，就立即朝最近的单位进行反击
+    def fight_back(self, raw_obs):
+        cmd = []
+        for uid in self.rocket_target:
+            if uid not in self.unit_attack_task.keys() or self.unit_attack_task[uid] == 2:
+                unit = self._id2unit(raw_obs, uid, is_enermy=False)
+                if unit:
+                    for en_unit in raw_obs[self.side]['qb']:
+                        dis = self.cal_unit_dis(unit, en_unit)
+                        if dis < 110:
+                            direction = self.get_attack_direction(en_unit, unit)
+                            if unit and unit['LX'] == UnitType.A2A and en_unit['LX'] == UnitType.A2A:
+                                cmd.append(Command.a2a_attack(unit['ID'], en_unit['ID']))
+                            if unit and unit['LX'] == UnitType.A2G and (en_unit['LX'] == UnitType.SHIP or en_unit['LX'] == UnitType.COMMAND or en_unit['LX'] == UnitType.RADAR):
+                                cmd.append(Command.target_hunt(unit['ID'], en_unit['ID'], dis - 10, direction))
+
+        for info in cmd:
+            print(info)
+
+        return cmd 
 
 
     # 第一个版本的编队控制，实现了简单思路，直接将单位映射到所在编队，然后控制该编队
@@ -399,6 +421,16 @@ class NJ01Player(AgentInterface):
         unit_team_map = self.unit2team(raw_obs)
         # 将所选单位列表 (selected_units) 映射到其所在编队
         teams = self.select_team_from_unit(unit_team_map, selected_units)
+
+        # print("selected units", selected_units)
+        # print("teams", teams)
+        # for team, unit in self.team_unit_map.items():
+        #     print(team, unit)
+        
+        # print("unit_team_map", unit_team_map)
+        # print()
+        # for unit in raw_obs[self.side]['units']:
+        #     print(unit)
         
         if meta_action == 0:    # 区域巡逻
             valid_actions['pos_x'] = 1.0
@@ -440,15 +472,15 @@ class NJ01Player(AgentInterface):
             # valid_actions['target_unit'] = 1.0
             # target_idx = actions['target_unit']
 
-            action_cmds.extend(self.attack_command(raw_obs, unit_team_map, selected_units))
+            action_cmds.extend(self.attack_command(raw_obs, unit_team_map, teams))
 
         else:       # 对船突击，需要对轰炸机编队进行控制
             # valid_actions['target_unit'] = 1.0
             # target_idx = actions['target_unit']
 
-            action_cmds.extend(self.attack_ship(raw_obs, unit_team_map, selected_units))
+            action_cmds.extend(self.attack_ship(raw_obs, unit_team_map, teams))
 
-
+        action_cmds.extend(self.fight_back(raw_obs))
         return action_cmds, valid_actions
 
 
