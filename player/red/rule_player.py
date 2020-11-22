@@ -299,6 +299,7 @@ class RulePlayer(BaseRulePlayer):
         cmds.extend(self._take_off(raw_obs))
         
         cmds.extend(self._awacs_task(raw_obs))
+        
         # cmds.extend(self.a2g_task.attack_ship(raw_obs['red']))
         # cmds.extend(self.a2g_task.attack_command(raw_obs['red']))
 

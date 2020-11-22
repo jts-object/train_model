@@ -139,7 +139,10 @@ class NJ01Player(AgentInterface):
         self.update_info(raw_obs)
         command, valid_actions = self._make_commands(action, raw_obs)
         cmds.extend(command)
-        # print('red cmd:', raw_obs['sim_time'])
+
+        print('ship found now', self.ships)
+        print('unit attack task', self.unit_attack_task)
+        
         return cmds, valid_actions
 
     # 返回 单位ID -> 编队ID 的映射
@@ -318,10 +321,13 @@ class NJ01Player(AgentInterface):
 
     def get_attack_direction(self, target, unit):
         # 余弦定理
+        print('target: {} and unit: {}'.format(target, unit))
         a = 1
         b = math.sqrt(math.pow(target['X'] - unit['X'], 2) + math.pow(target['Y'] - unit['Y'], 2))
         c = math.sqrt(math.pow(unit['X'] - target['X'], 2) + math.pow(unit['Y'] - (target['Y'] + 1), 2))
         cos_theta = (a * a + b * b - c * c)/(2 * a * b)
+
+        print('a={} and b={} and c={} and cos_theta={}'.format(a, b, c, cos_theta))
         if unit['X'] >= target['X']:
             direction = math.acos(cos_theta) * 180./math.pi
             direction = 180 + direction
@@ -330,10 +336,22 @@ class NJ01Player(AgentInterface):
 
         return direction
 
-    # 如何把功能集成为函数，如何把函数集成为对象
-    def attack_valid(self, unit, target):
-        # 返回单位 unit 是否可以接受打击 target 的任务
-        pass
+    # 返回当前的unit[目前只支持A2A和A2G]是否可以接受打击target的动作
+    def is_attack_valid(self, unit, target):
+        dis_constrain = self.cal_unit_dis(unit, target) < 110. 
+        # self.unit_attack_task 目前只有三种状态，空 或 0 或 1
+        task_constrain = unit['ID'] not in self.unit_attack_task.keys() or self.unit_attack_task[unit['ID']] == 2
+        curr_missle_num = unit['WP']['360'] if unit['LX'] == UnitType.A2G else unit['WP']['170']
+        total_missle_num = 2 if unit['LX'] == UnitType.A2G else 6
+        if dis_constrain:
+            if task_constrain and curr_missle_num > 0:
+                return True 
+            if not task_constrain and 0 < curr_missle_num < total_missle_num:
+                return True 
+            if curr_missle_num == 0:
+                return False
+        else:
+            return False
 
     # 打船，对编队中每一个单位下指令
     def attack_ship(self, raw_obs, unit_team_map, teams):
@@ -344,13 +362,13 @@ class NJ01Player(AgentInterface):
                 for unit in self.team_unit_map[team]:
                     if unit and unit['LX'] == UnitType.A2G:
                         for ship in self.ships:
-                            # 在 110 km 处开始发弹；只有没任务或者任务状态为巡逻(=2)的才可以接受打击船的指令
-                            if self.cal_unit_dis(unit, ship) < 110. and (unit['ID'] not in self.unit_attack_task.keys() or self.unit_attack_task[unit['ID']] == 2):
-                                print("attack ship start !")
+                            # 在 110 km 处开始发弹；只有没任务或者任务状态为巡逻(=2)的才可以接受打击船的指令，
+                            if self.is_attack_valid(unit, ship):
                                 direction = self.get_attack_direction(ship, unit)
                                 cmd.append(Command.target_hunt(unit['ID'], ship['ID'], 90, direction))
-                                self.unit_attack_task[unit['ID']] = 1   # 此时状态码为 1
+                                self.unit_attack_task[unit['ID']] = 1   # 此时状态码置为 1
                                 # cmd.append(Command.target_hunt(unit_team_map[id_], ship['ID'], fire_range, direction))
+                                print("Attack ship start ! uid = {}, missile = {}, direction = {}".format(unit['ID'], unit['WP']['360'], direction))
                                 break
         
         return cmd 
@@ -364,11 +382,11 @@ class NJ01Player(AgentInterface):
                     if unit and unit['LX'] == UnitType.A2G:
                         for commander in self.target_command:
                             # 距离指挥所 110 km 开启目标突击
-                            if self.cal_unit_dis(unit, commander) < 110. and (unit['ID'] not in self.unit_attack_task.keys() or self.unit_attack_task[unit['ID']] == 2):
-                                print("attack command start !")
+                            if self.is_attack_valid(unit, commander):
                                 direction = self.get_attack_direction(commander, unit)
                                 cmd.append(Command.target_hunt(unit['ID'], commander['ID'], 90, direction))
                                 self.unit_attack_task[unit['ID']] = 1
+                                print("attack command start !uid={}, missile={}, direction={}".format(unit['ID'], unit['WP']['360'], direction))
                                 break
 
         return cmd 
@@ -379,19 +397,26 @@ class NJ01Player(AgentInterface):
         for uid in self.rocket_target:
             if uid not in self.unit_attack_task.keys() or self.unit_attack_task[uid] == 2:
                 unit = self._id2unit(raw_obs, uid, is_enermy=False)
+                print('locked id {}, locked type {} '.format(uid, unit['LX']))
                 if unit:
                     for en_unit in raw_obs[self.side]['qb']:
                         dis = self.cal_unit_dis(unit, en_unit)
-                        if dis < 110:
-                            direction = self.get_attack_direction(en_unit, unit)
-                            if unit and unit['LX'] == UnitType.A2A and en_unit['LX'] == UnitType.A2A:
+                        if dis < 125:
+                            print('dis {} and enermy unit type {}'.format(dis, en_unit['LX']))
+                            # 对于 A2A 来说反击只需要一架
+                            if unit['LX'] == UnitType.A2A and en_unit['LX'] == UnitType.A2A:
+                                direction = self.get_attack_direction(en_unit, unit)
                                 cmd.append(Command.a2a_attack(unit['ID'], en_unit['ID']))
-                            if unit and unit['LX'] == UnitType.A2G and (en_unit['LX'] == UnitType.SHIP or en_unit['LX'] == UnitType.COMMAND or en_unit['LX'] == UnitType.RADAR):
-                                cmd.append(Command.target_hunt(unit['ID'], en_unit['ID'], dis - 10, direction))
-
-        for info in cmd:
-            print(info)
-
+                                self.unit_attack_task[unit['ID']] = 1
+                            # 对于 A2G 来说反击需要一个编队
+                            if unit['LX'] == UnitType.A2G and (en_unit['LX'] == UnitType.SHIP or en_unit['LX'] == UnitType.COMMAND or en_unit['LX'] == UnitType.RADAR):
+                                print('team fight back')
+                                team = unit['TMID']
+                                for team_unit in self.team_unit_map[team]:
+                                    direction = self.get_attack_direction(en_unit, team_unit)
+                                    cmd.append(Command.target_hunt(team_unit['ID'], en_unit['ID'], 92, direction))
+                                    self.unit_attack_task[unit['ID']] = 1
+        
         return cmd 
 
 
@@ -419,18 +444,19 @@ class NJ01Player(AgentInterface):
 
         # 从obs中得到其单位ID到编队ID的映射
         unit_team_map = self.unit2team(raw_obs)
+        print('unit_team_map', unit_team_map)
         # 将所选单位列表 (selected_units) 映射到其所在编队
         teams = self.select_team_from_unit(unit_team_map, selected_units)
 
-        # print("selected units", selected_units)
         # print("teams", teams)
         # for team, unit in self.team_unit_map.items():
         #     print(team, unit)
         
-        # print("unit_team_map", unit_team_map)
         # print()
         # for unit in raw_obs[self.side]['units']:
         #     print(unit)
+
+        print('Action in This Step Equals', meta_action)
         
         if meta_action == 0:    # 区域巡逻
             valid_actions['pos_x'] = 1.0
@@ -440,7 +466,11 @@ class NJ01Player(AgentInterface):
             center_points = patrol_point_map[(patrol_zone_x_idx, patrol_zone_y_idx)]
 
             for team in teams:
-                action_cmds.append(Command.area_patrol(team, center_points))
+                for unit in self.team_unit_map[team]:
+                    if unit['ID'] not in self.unit_attack_task.keys() or self.unit_attack_task[unit['ID']] == 2:
+                        action_cmds.append(Command.area_patrol(team, center_points))
+                        self.unit_attack_task[unit['ID']] = 2
+                
 
         elif meta_action == 1:      # 空中拦截，目前认为 'target_unit' 只作为歼击机的拦截目标 
             valid_actions['target_unit'] = 1.0  # target unit valid 
@@ -451,7 +481,7 @@ class NJ01Player(AgentInterface):
                     our_unit = self._id2unit(raw_obs, id_, is_enermy=False)
                     en_unit = self._id2unit(raw_obs, self.en_unit_ids[target_idx], is_enermy=True)
                     if our_unit and en_unit:
-                        if self.cal_unit_dis(our_unit, en_unit) < 200.:       # 200 km 之内开始目标打击
+                        if self.cal_unit_dis(our_unit, en_unit) < 150.:       # 200 km 之内开始目标打击
                             action_cmds.append(Command.a2a_attack(id_, self.en_unit_ids[target_idx]))
                         else:
                             patrol_point = [en_unit["X"], en_unit["Y"], en_unit["Z"]]
