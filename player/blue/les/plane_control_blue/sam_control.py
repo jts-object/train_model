@@ -113,6 +113,11 @@ class Sam(object):
                     # print('sam remove fighter:', sam_id, fighter)
                     pass
 
+        if sim_time > 3000:
+            for cmd in cmd_list:
+                print(cmd)
+        
+
         return cmd_list
 
 

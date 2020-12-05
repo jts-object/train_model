@@ -103,6 +103,7 @@ class BlueRuleAgent:
         # cmd_list.extend(cmd_sam)
 
         # print('----time----', time.time() - t1)
+
         return cmd_list
 
     # 将情报中的目标分类

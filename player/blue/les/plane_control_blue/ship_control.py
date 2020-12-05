@@ -14,7 +14,7 @@ class Ship(object):
         self.unknown = set()      # 初始态势（xx秒内）的未知目标
         self.unknown_new = set()  # 新出现的未知目标
         self.opponent = set()     # 情报中的对方目标
-        self.state = 0            # 0--初始化状态, 1--巡逻区域设置完成,2--机动
+        self.state = 0            # 0--初始化状态, 1--巡逻区域设置完成, 2--机动
         self.ship_id = -1
 
         self.radar_flag = True
@@ -27,9 +27,22 @@ class Ship(object):
         if sim_time > 100 and self.radar_flag:
             for unit in obs_blue['units']:
                 if unit['LX'] == 21:
-                    cmd_list_2.append(EnvCmd.make_ship_radarcontrol(unit['ID'], 1))
+                    cmd_list_2.append(EnvCmd.make_ship_radarcontrol(unit['ID'], 0))
                     self.radar_flag = False
-                    print("radar of ship off")
+                if unit['LX'] == UnitType.AWACS:
+                    cmd_list_2.append(EnvCmd.make_awcs_areapatrol(unit['ID'], -70000, 20000, 8000, 270, 10, 10, 100, 3600))
+
+
+        ship_id = [unit['ID'] for unit in obs_blue['units'] if unit['LX'] == UnitType.SHIP]
+        ship_id = ship_id[0] if len(ship_id) > 0 else None 
+        # for sid in ship_id:
+        for unit in obs_blue['qb']:
+            if unit['LX'] == UnitType.A2A or unit['LX'] == UnitType.A2G:
+                if ship_id:
+                    if self.calc_distance(ship_id, unit['ID'], obs_blue) <= 95:
+                        cmd_list_2.append(EnvCmd.make_ship_addtarget(ship_id, unit['ID']))
+                    else:
+                        cmd_list_2.append(EnvCmd.make_ship_removetarget(ship_id, unit['ID']))
 
         # 设置初始部署任务，多个备选区域，可以动态调整，对战过程中分析和记录对方的出兵策略，
         if self.state == 0:
@@ -37,10 +50,12 @@ class Ship(object):
                 if unit['LX'] == 21 and unit['WH'] == 1:
                     self.ship_id = unit['ID']
                     cmd_list_2.extend(self._ship_movedeploy(unit['ID'], -120000, 80000))
+                    cmd_list_2.extend(self._ship_movedeploy(unit['ID'], -60000, 30000))
                     # cmd_list.extend(self._ship_movedeploy(unit['ID'], -10000, 0))
                     # cmd_list.extend(self._ship_movedeploy(unit['ID'], 0, 20000))
                     self.state = 1
                     return cmd_list_2
+
 
         # alive_ship = False  # 舰船是否活着
         # for unit in obs_blue['units']:
@@ -80,10 +95,15 @@ class Ship(object):
         #             print('attack awacs')
 
         # for bommer in red_bomber:
-        #     if self.calc_distance(self.ship_id, bommer, obs_blue) <= 80:
+        #     if self.calc_distance(self.ship_id, bommer, obs_blue) <= 113:
         #         cmd_list.extend(self._ship_addtarget(self.ship_id, bommer))
         #         if print_flag:
         #             print('attack bommer')
+        #         print('ship id attack bommer and dis = ', self.ship_id, self.calc_distance(self.ship_id, bommer, obs_blue))
+        # print('obs_blue qb', obs_blue['qb'])
+        # cmd_list_2.extend(cmd_list)
+        
+        
 
         return cmd_list_2
 

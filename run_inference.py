@@ -13,7 +13,7 @@ if __name__ == '__main__':
         policy_class = policy_conf.pop('class')
         policy = policy_class()(name, **policy_conf)
         predictor = LocalPredictor(policy)
-        predictor.restore("/HDD2/jts/train_model/models/red_player-checkpoint-160")
+        # predictor.restore("/HDD2/jts/train_model/models/red_player-checkpoint-720")
         predictors[name] = predictor
     gear_config = config['env_runner']['gear_config']
     # hard-code gamma and lambda

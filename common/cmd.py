@@ -4,7 +4,7 @@ from env.env_def import UnitType
 
 
 class CommandDefault(object):
-    TAKEOFF_PATROL_POINT = [130000, 0, 8000]
+    TAKEOFF_PATROL_POINT = [150000, 0, 8000]
     TAKEOFF_PATROL_PARAMS = [270, 20000, 20000, 250, 7200]
 
     A2A_PATROL_HEIGHT = 8000

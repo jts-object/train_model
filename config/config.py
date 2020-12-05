@@ -55,10 +55,11 @@ feature_templates_list = [
             "a2g": RangedFeature((0, MapInfo.A2G_WEAPON_NUM_MAX)),
             "course": RangedFeature((MapInfo.COURSE_MIN, MapInfo.COURSE_MAX)),
             "speed": RangedFeature((MapInfo.SPEED_MIN, MapInfo.SPEED_MAX)),
-            "locked": CategoricalFeature(depth=2),
+            # "locked": CategoricalFeature(depth=2),
+            "locked": PlainFeature(),
             "type": CategoricalFeature(depth=len(PlayerConfig.MY_UNIT_TYPES)),
         },
-        encoder_config=default_entity_config    # 使用上述填写的特征抽取参数
+        encoder_config=default_entity_config    # 使用上述填写的特征抽取参数   
     ),
     EntityFeatureTemplate(              # 敌方单位信息
         name='en_units',
@@ -100,71 +101,13 @@ feature_templates_list = [
     )
 ]
 
-# implement your feature templates dict here
-feature_templates_list_blue = [
-    EntityFeatureTemplate(              # 我方单位信息
-        name='my_units',
-        max_length=bluePlayerConfig.MAX_MY_UNIT_LEN,                  # 我方单位数量最大值
-        features={                      # 我方单位特征（可视情况进行二次设计）
-            "x": RangedFeature((MapInfo.X_MIN, MapInfo.X_MAX)),
-            "y": RangedFeature((MapInfo.Y_MIN, MapInfo.Y_MAX)),
-            "z": RangedFeature((MapInfo.Z_MIN, MapInfo.Z_MAX)),
-            "a2a": RangedFeature((0, MapInfo.A2A_WEAPON_NUM_MAX)),
-            "a2g": RangedFeature((0, MapInfo.A2G_WEAPON_NUM_MAX)),
-            "course": RangedFeature((MapInfo.COURSE_MIN, MapInfo.COURSE_MAX)),
-            "speed": RangedFeature((MapInfo.SPEED_MIN, MapInfo.SPEED_MAX)),
-            "locked": CategoricalFeature(depth=2),
-            "type": CategoricalFeature(depth=len(bluePlayerConfig.MY_UNIT_TYPES)),
-        },
-        encoder_config=default_entity_config    # 使用上述填写的特征抽取参数
-    ),
-    EntityFeatureTemplate(              # 敌方单位信息
-        name='en_units',
-        max_length=bluePlayerConfig.MAX_EN_UNIT_LEN,                 # 敌方单位数量最大值
-        features={                      # 敌方单位特征（可视情况进行二次设计）
-            "x": RangedFeature((MapInfo.X_MIN, MapInfo.X_MAX)),
-            "y": RangedFeature((MapInfo.Y_MIN, MapInfo.Y_MAX)),
-            "z": RangedFeature((MapInfo.Z_MIN, MapInfo.Z_MAX)),
-            "course": RangedFeature((MapInfo.COURSE_MIN, MapInfo.COURSE_MAX)),
-            "speed": RangedFeature((MapInfo.SPEED_MIN, MapInfo.SPEED_MAX)),
-            'type': CategoricalFeature(depth=len(bluePlayerConfig.EN_UNIT_TYPES)),
-        },
-        encoder_config=default_entity_config    # 使用上述填写的特征抽取参数
-    ),
-    SpatialFeatureTemplate(
-        height=bluePlayerConfig.MINI_MAP_SIZE,
-        width=bluePlayerConfig.MINI_MAP_SIZE,
-        name='mini_map',
-        features={
-            "my_a2a": PlainFeature(),
-            "my_a2g": PlainFeature(),
-            "en_a2a": PlainFeature(),
-            "en_a2g": PlainFeature(),
-            "threat": PlainFeature(),
-        }
-    ),
-    CommonFeatureTemplate(
-        name='common',                  # 通用信息
-        features={                      # 通用信息特征（可视情况进行二次设计）
-            "sim_time": RangedFeature((MapInfo.SIM_TIME_MIN, MapInfo.SIM_TIME_MAX)),
-        }
-    ),
-    ActionMaskFeatureTemplate(
-        name="selected_units_mask",
-        features={
-            "mask": VectorFeature(bluePlayerConfig.MAX_MY_UNIT_LEN),
-        },
-        as_features=False,
-    )
-]
-
 # implement your action space here
 action_type = MultipleHeadsAction(
     [
         ChildHead(
             CategoricalAction(          # 选择执行何种动作
                 name='meta_action',
-                n=6, 
+                n=7, 
             )
         ),
         ChildHead(
@@ -197,44 +140,6 @@ action_type = MultipleHeadsAction(
     ]
 )
 
-
-# implement your action space here
-action_type_blue = MultipleHeadsAction(
-    [
-        ChildHead(
-            CategoricalAction(          # 选择执行何种动作
-                name='meta_action',
-                n=3
-            )
-        ),
-        ChildHead(
-            OrderedMultipleSelectiveAction(  # 选择执行该动作的我方单位
-                name='selected_units',
-                source_template=feature_templates_list_blue[0],  # 我方单位数据来源
-                max_count=10,
-                action_mask="selected_units_mask",
-            )
-        ),
-        ChildHead(
-            CategoricalAction(          # 提供选择实施动作的必要数据（此处为移动动作的x位置）
-                name='pos_x',
-                n=bluePlayerConfig.GLOBAL_MOVE_SIZE
-            )
-        ),
-        ChildHead(
-            CategoricalAction(          # 提供选择实施动作的必要数据（此处为移动动作的y位置）
-                name='pos_y',
-                n=bluePlayerConfig.GLOBAL_MOVE_SIZE
-            )
-        ),
-        ChildHead(
-            SingleSelectiveAction(      # 提供选择实施动作的必要数据（此处为攻击对象）
-                name='target_unit',
-                source_template=feature_templates_list_blue[1]   # 敌方单位数据来源
-            )
-        )
-    ]
-)
 
 PREFIX = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 gear_config = {
@@ -283,7 +188,7 @@ gear_config = {
         'server_port': 6100,
         'volume_list': [],
         'max_game_len': None,
-        'max_game_time': 8000,      # 每回合的最大时间限制
+        'max_game_time': 10800,      # 每回合的最大时间限制
         'scen_name': '/home/Joint_Operation_scenario.ntedt',
         'prefix': PREFIX,
         'image_name': 'sim_fast:v2.8',

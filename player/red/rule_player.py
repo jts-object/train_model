@@ -7,10 +7,21 @@ from common.interface.task import Task, TaskState
 from common.units import Unit, A2G
 from common.threat_analysis import ThreatAnalysis
 from env.env_util import azimuth_angle
+
+from player.red.disturb_task import DisturbControl
+from player.red.union_task import unionControl
+from player.red.awacs_task import AwacsControl
+
 import numpy as np
 import math
 
 A2A_PATROL_PARAMS = [270, 10000, 10000, 250, 7200]
+
+
+class unit_task_state:
+    ESCAPE = 0
+    ATTACK = 1
+    PATROL = 2
 
 
 class A2GTask(Task):
@@ -89,7 +100,7 @@ class A2GTask(Task):
                 self.is_ship_found = True 
                 if self.target_ship is None:
                     self.target_ship = unit 
-            if unit['LX'] == UnitType.COMMAND and self.target_ship is None:
+            if unit['LX'] == UnitType.COMMAND and self.target_command is None:
                 self.target_command = unit 
             
         self.team_unit_map = {}
@@ -123,7 +134,7 @@ class A2GTask(Task):
     def get_escape_point(self, rockets, unit):
         for rocket in rockets:
             if rocket['N2'] == unit['ID']:
-                angel = rocket['HX']/180. * math.pi
+                angel = rocket['HX']/180. * math.pi + 90 # 看看偏折 45 度是否可以躲开
                 patrol_x = unit['X'] + 100000 * math.sin(angel)
                 patrol_y = unit['Y'] + 100000 * math.cos(angel)
                 patrol_z = 8000
@@ -142,7 +153,7 @@ class A2GTask(Task):
             direction = math.acos(cos_theta) * 180./math.pi
             direction = 180 + direction
         else:
-            direction = 180 + math.acos(cos_theta) * 180./math.pi
+            direction = 180 - math.acos(cos_theta) * 180./math.pi
 
         return direction
 
@@ -151,17 +162,17 @@ class A2GTask(Task):
         cmd  = []
         self.update_info(obs)
 
+        # 1:处于打击状态，且剩一枚弹；0:两枚弹都发出去了，2:巡逻；3:处于逃逸状态
         if self.is_ship_found:
             for team, units in self.team_unit_map.items():
                 for unit in units:
-                    if self.cal_unit_dis(unit, self.target_ship) < 110 and unit['ID'] not in self.rocket_target:
+                    if self.cal_unit_dis(unit, self.target_ship) < 50 and unit['ID'] not in self.rocket_target:
                         if unit['ID'] in self.unit_task_state.keys() and self.unit_task_state[unit['ID']] == 2:
                             print('unit accept attack task: ', unit['ID'])
                             self.unit_task_state[unit['ID']] = 1
                             direction = self.get_attack_direction(self.target_ship, unit)
                             cmd.append(Command.target_hunt(unit['ID'], self.target_ship['ID'], 90, direction))
-                            self.unit_task_state[unit['ID']] = 1
-                    if self.cal_unit_dis(unit, self.target_ship) > 110 and unit['ID'] not in self.rocket_target:
+                    if self.cal_unit_dis(unit, self.target_ship) > 50 and unit['ID'] not in self.rocket_target:
                         if unit['ID'] in self.unit_task_state.keys() and self.unit_task_state[unit['ID']] == 2:
                             print('unit accept patrol task: ', unit['ID'])
                             self.unit_task_state[unit['ID']] = 2    # 表示目前接受巡逻任务
@@ -173,14 +184,17 @@ class A2GTask(Task):
                         self.unit_task_state[unit['ID']] = 3
                         for rocket in self.rockets:
                             print('rocket info', rocket)
-                        print('escape point', escape_point)
-                        print('unit {} at ({}, {}, {}) is locked by rocket'.format(unit['ID'], unit['X'], unit['Y'], unit['Z']))
                         if escape_point is not None:
                             cmd.append(Command.area_patrol(unit['ID'], escape_point))
+                            self.unit_task_state[unit['ID']] = 3
                     if unit['WP']['360'] == 1 and self.unit_task_state[unit['ID']] == 1:
                         direction = self.get_attack_direction(self.target_ship, unit)
                         cmd.append(Command.target_hunt(unit['ID'], self.target_ship['ID'], 90, direction))
                         self.unit_task_state[unit['ID']] = 0
+                    if self.unit_task_state[unit['ID']] == 3 and self.cal_unit_dis(unit, self.target_ship) > 155:
+                        print('unit accept approach task: ', unit['ID'])
+                        self.rocket_target.remove(unit['ID'])
+                        self.unit_task_state[unit['ID']] = 2
       
         else:
             # TODO: 修改确定巡逻位点的逻辑
@@ -205,17 +219,17 @@ class A2GTask(Task):
                             cmd.append(Command.area_patrol(unit['ID'], center_point))
                             self.unit_task_state[unit['ID']] = 2
                     else:
-                        if unit['ID'] in self.unit_task_state.keys() and self.unit_task_state[unit['ID']] == 2:
+                        # 接受第一次打击任务
+                        if unit['ID'] not in self.unit_task_state.keys() or self.unit_task_state[unit['ID']] == 2:
                             self.unit_task_state[unit['ID']] = 1
                             direction = self.get_attack_direction(self.target_command, unit)
                             cmd.append(Command.target_hunt(unit['ID'], self.target_command['ID'], 90, direction))
 
-                        # 此时表明该单位的导弹发出去一枚，继续对同一个目标进行打击
+                        # 接受第二次打击任务，此时表明该单位的导弹发出去一枚，继续对同一个指挥所进行打击
                         if unit['WP']['360'] == 1 and self.unit_task_state[unit['ID']] == 1:
                             self.unit_task_state[unit['ID']] = 0
                             direction = self.get_attack_direction(self.target_command, unit)
                             cmd.append(Command.target_hunt(unit['ID'], self.target_command['ID'], 90, direction))
-
 
         return cmd 
 
@@ -256,22 +270,30 @@ class RulePlayer(BaseRulePlayer):
         self.a2g_task = OneForAllA2gTask(6, 100, 500, self.map_grid)
         # A*算法时，只考虑了歼击机的威胁，没有考虑舰船和地防的威胁（有可能无法避免）
         self.threat_analysis = ThreatAnalysis(self.map_grid, {UnitType.A2A: 100000})
-
+        
+        # added by jts
         self.flag = True
+        self.disturb_control = DisturbControl()
+        self.union_control = unionControl()
+        self.awacs_control = AwacsControl()
+
 
     def _take_off(self, raw_obs):
         cmds = []
 
-        fly_types = [UnitType.A2A, UnitType.A2G, UnitType.JAM]
-        for type_ in fly_types:
+        # 用于起飞多类型飞机
+        # fly_types = [UnitType.A2A, UnitType.A2G, UnitType.JAM]
+        for type_ in [UnitType.A2A, UnitType.A2G]:
             num = min(self._get_waiting_aircraft_num(raw_obs, type_), 4)
             # if self._get_waiting_aircraft_num(raw_obs, type_):
             if num:
                 cmds.append(Command.takeoff_areapatrol(RED_AIRPORT_ID, num, type_))
 
-        # if self.flag:
-        #     cmds.append(Command.takeoff_areapatrol(RED_AIRPORT_ID, 3, UnitType.A2G))
-        #     self.flag = False 
+        # 用于单次起飞几架飞机
+        if self.flag:
+            cmds.append(Command.takeoff_areapatrol(RED_AIRPORT_ID, 1, UnitType.A2G))
+            cmds.append(Command.takeoff_areapatrol(RED_AIRPORT_ID, 1, UnitType.DISTURB))
+            self.flag = False 
 
         return cmds
 
@@ -297,28 +319,30 @@ class RulePlayer(BaseRulePlayer):
     def step(self, raw_obs):
         cmds = []
         cmds.extend(self._take_off(raw_obs))
-        
-        cmds.extend(self._awacs_task(raw_obs))
-        
-        # cmds.extend(self.a2g_task.attack_ship(raw_obs['red']))
-        # cmds.extend(self.a2g_task.attack_command(raw_obs['red']))
+        # cmds.extend(self._awacs_task(raw_obs))
 
-        a2g_map = self._get_units_map(raw_obs, UnitType.A2G)
-        self.a2g_task.update(a2g_map, raw_obs)
-        for unit_id, _ in self.a2g_task.get_units_map().items():
-            a2g_map.pop(unit_id)
-        threat_matrix = self.threat_analysis.get_threat_matrix(raw_obs[self.side])
+        # 基于规则的电子战 
 
-        print(raw_obs['red']['rockets'])
-        print(raw_obs['blue']['rockets'])
+        cmds.extend(self.union_control.gene_cmd(raw_obs['red'], raw_obs['sim_time']))
+        cmds.extend(self.awacs_control.gene_cmd(raw_obs['red']))
+
+        # if raw_obs['sim_time'] > 3000:
+        #     for cmd in cmds:
+        #         print(cmd) 
+
+        # a2g_map = self._get_units_map(raw_obs, UnitType.A2G)
+        # self.a2g_task.update(a2g_map, raw_obs)
+        # for unit_id, _ in self.a2g_task.get_units_map().items():
+        #     a2g_map.pop(unit_id)
+        # threat_matrix = self.threat_analysis.get_threat_matrix(raw_obs[self.side])
+
+        # print(raw_obs['red']['rockets'])
+        # print(raw_obs['blue']['rockets'])
 
         # print(threat_matrix)
         # threat_matrix = np.ones((self.map_grid.x_n, self.map_grid.y_n))
         # cmds.extend(self.a2g_task.run(a2g_map, threat_matrix))
         # patrol_cmds = [cmd for cmd in cmds if 'patrol'in cmd['maintype']]
         # print('total, patrol, else', len(cmds), len(patrol_cmds), len(cmds)-len(patrol_cmds))
-
-        # for cmd in cmds:
-        #     print(cmd)
 
         return cmds
